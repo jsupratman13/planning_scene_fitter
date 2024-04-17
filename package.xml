@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>planning_scene_fitter</name>
+  <version>0.0.0</version>
+  <description>The planning scene fitter ros package</description>
+  <maintainer email="supratmanjoshua@gmail.com">Joshua Supratman</maintainer>
+  <license>Apache License, Version 2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>actionlib</depend>
+  <depend>roscpp</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>eigen</depend>
+  <depend>eigen_conversions</depend>
+
+</package>
