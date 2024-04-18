@@ -6,8 +6,11 @@ add_compile_options(-std=c++17)
 find_package(
   catkin REQUIRED
   COMPONENTS actionlib
+             moveit_ros_planning_interface
+             pcl_ros
              geometry_msgs
              roscpp
+             tf2_sensor_msgs
              tf2_ros
              tf2_geometry_msgs
              cv_bridge
@@ -21,6 +24,8 @@ catkin_package(
   LIBRARIES ${PROJECT_NAME}
   CATKIN_DEPENDS
     actionlib
+    moveit_ros_planning_interface
+    pcl_ros
     geometry_msgs
     roscpp
     tf2_ros
@@ -30,12 +35,9 @@ catkin_package(
   DEPENDS OpenCV
 )
 
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-)
+include_directories(include ${catkin_INCLUDE_DIRS})
 
-add_executable(${PROJECT_NAME} src/beam_model.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp)
 target_link_libraries(
   ${PROJECT_NAME}
   ${catkin_LIBRARIES}
