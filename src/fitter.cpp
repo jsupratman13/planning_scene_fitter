@@ -23,7 +23,7 @@
 #include "planning_scene_fitter/mesh_tools.h"
 
 // Communication
-#include <ed_sensor_integration_msgs/ImageBinary.h>
+// #include <ed_sensor_integration_msgs/ImageBinary.h>
 
 #include <sstream>
 
