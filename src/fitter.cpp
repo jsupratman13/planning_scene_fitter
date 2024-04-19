@@ -2,8 +2,11 @@
 #include <limits>
 
 // Logging
-#include <ros/console.h>
+#include <ros/ros.h>
 
+#include <Eigen/Geometry>
+#include <geometric_shapes/shapes.h>
+#include "moveit/collision_detection/world.h"
 #include "planning_scene_fitter/fitter.h"
 #include <ed/entity.h>
 #include <ed/world_model.h>
@@ -109,12 +112,55 @@ void decomposePose(const geo::Pose3D& pose, geo::Pose3D& pose_xya, geo::Pose3D& 
   pose_zrp = pose_xya.inverse() * pose;
 }
 
+void decomposePose(const Eigen::Isometry3d& pose, geo::Pose3D& pose_xya, geo::Pose3D& pose_zrp)
+{
+  geo::Vec3d translation(pose.translation().x(), pose.translation().y(), pose.translation().z());
+  geo::Mat3d rotation;
+  for (int i = 0; i < 3; i++)
+  {
+    for (int j = 0; j < 3; j++)
+    {
+      rotation(i, j) = pose.rotation()(i, j);
+    }
+  }
+  geo::Pose3D geo_pose(rotation, translation);
+  decomposePose(geo_pose, pose_xya, pose_zrp);
+}
+
 // ----------------------------------------------------------------------------------------------------
 
 // Convert a 3D transform with only a x, y and yaw component to a 2D transform
 geo::Transform2 XYYawToTransform2(const geo::Pose3D& pose)
 {
   return geo::Transform2(geo::Mat2(pose.R.xx, pose.R.xy, pose.R.yx, pose.R.yy), geo::Vec2(pose.t.x, pose.t.y));
+}
+// ----------------------------------------------------------------------------------------------------
+
+// Convert geometric shapes to geo::Mesh
+geo::Mesh convertShapeToMesh(const shapes::ShapeConstPtr& shape)
+{
+  geo::Mesh geo_mesh;
+  if (shape->type == shapes::MESH)
+  {
+    const shapes::Mesh* mesh = static_cast<const shapes::Mesh*>(shape.get());
+    for (std::size_t i = 0; i < mesh->vertex_count; ++i)
+    {
+      // geo_mesh.addPoint(mesh->vertices[3*i], mesh->vertices[3*i+1], mesh->vertices[3*i+2]);
+      const double* vertex = mesh->vertices + 3 * i;
+      geo_mesh.addPoint(vertex[0], vertex[1], vertex[2]);
+    }
+    for (std::size_t i = 0; i < mesh->triangle_count; ++i)
+    {
+      // geo_mesh.addTriangle(mesh->triangles[3*i], mesh->triangles[3*i+1], mesh->triangles[3*i+2]);
+      const unsigned int* triangle = mesh->triangles + 3 * i;
+      geo_mesh.addTriangle(triangle[0], triangle[1], triangle[2]);
+    }
+  }
+  else
+  {
+    ROS_WARN("Unsupported shape type");
+  }
+  return geo_mesh;
 }
 
 // ----------------------------------------------------------------------------------------------------
@@ -225,11 +271,11 @@ double computeFittingError(const std::vector<double>& test_ranges, const std::ve
 
 // ----------------------------------------------------------------------------------------------------
 
-geo::Pose3D computeFittedPose(const geo::Transform2& pose_sensor, ed::EntityConstPtr entity,
+geo::Pose3D computeFittedPose(const geo::Transform2& pose_sensor, collision_detection::World::ObjectConstPtr entity,
                               const geo::Pose3D& sensor_pose_xya)
 {
   geo::Pose3D pose_3d;
-  pose_3d.t = geo::Vec3(pose_sensor.t.x, pose_sensor.t.y, entity->pose().t.z);
+  pose_3d.t = geo::Vec3(pose_sensor.t.x, pose_sensor.t.y, entity->pose_.translation().z());
   pose_3d.R = geo::Mat3::identity();
   pose_3d.R.xx = pose_sensor.R.xx;
   pose_3d.R.xy = pose_sensor.R.xy;
@@ -263,12 +309,12 @@ Fitter::~Fitter()
 
 // ----------------------------------------------------------------------------------------------------
 
-bool Fitter::estimateEntityPose(const FitterData& data, const ed::WorldModel& world, const ed::UUID& id,
+bool Fitter::estimateEntityPose(const FitterData& data, const collision_detection::World::ObjectConstPtr& object,
                                 const geo::Pose3D& expected_pose, geo::Pose3D& fitted_pose, double max_yaw_change) const
 {
   try
   {
-    return estimateEntityPoseImp(data, world, id, expected_pose, fitted_pose, max_yaw_change);
+    return estimateEntityPoseImp(data, object, expected_pose, fitted_pose, max_yaw_change);
   }
   catch (const FitterError& error)
   {
@@ -279,11 +325,11 @@ bool Fitter::estimateEntityPose(const FitterData& data, const ed::WorldModel& wo
 
 // ----------------------------------------------------------------------------------------------------
 
-bool Fitter::estimateEntityPoseImp(const FitterData& data, const ed::WorldModel& world, const ed::UUID& id,
+bool Fitter::estimateEntityPoseImp(const FitterData& data, const collision_detection::World::ObjectConstPtr& object,
                                    const geo::Pose3D& expected_pose, geo::Pose3D& fitted_pose,
                                    double max_yaw_change) const
 {
-  const EstimationInputData estimation_input_data = preProcessInputData(world, id, expected_pose, data);
+  const EstimationInputData estimation_input_data = preProcessInputData(object, expected_pose, data);
 
   // -------------------------------------
   // Compute yaw range
@@ -314,13 +360,13 @@ bool Fitter::estimateEntityPoseImp(const FitterData& data, const ed::WorldModel&
 
 // ----------------------------------------------------------------------------------------------------
 
-EstimationInputData Fitter::preProcessInputData(const ed::WorldModel& world, const ed::UUID& id,
+EstimationInputData Fitter::preProcessInputData(const collision_detection::World::ObjectConstPtr& object,
                                                 const geo::Pose3D& expected_pose, const FitterData& data) const
 {
   EstimationInputData result;
 
   // Get entity for which to fit the pose
-  result.entity = world.getEntity(id);
+  result.entity = object;
 
   // -------------------------------------
   // Get 2D contour
@@ -338,7 +384,7 @@ EstimationInputData Fitter::preProcessInputData(const ed::WorldModel& world, con
   // Render world model objects
   result.model_ranges.resize(nr_data_points_, 0);
   std::vector<int> dummy_identifiers(nr_data_points_, -1);
-  renderWorldModel2D(world, data.sensor_pose_xya, id, result.model_ranges, dummy_identifiers);
+  // renderWorldModel2D(object, data.sensor_pose_xya, result.model_ranges, dummy_identifiers);
 
   // -------------------------------------
   // Calculate the beam which shoots through the expected position of the entity
@@ -426,48 +472,49 @@ bool Fitter::evaluateCandidate(const EstimationInputData& static_data, Candidate
 
 // ----------------------------------------------------------------------------------------------------
 
-Shape2D Fitter::get2DShape(ed::EntityConstPtr entity_ptr) const
+Shape2D Fitter::get2DShape(collision_detection::World::ObjectConstPtr entity_ptr) const
 {
-  if (!entity_ptr->visual())
-    throw FitterError("Entity " + entity_ptr->id().str() + " has no shape");
+  if (entity_ptr->shapes_.empty())
+    throw FitterError("Entity " + entity_ptr->id_ + " has no shape");
 
   EntityRepresentation2D repr_2d = GetOrCreateEntity2D(entity_ptr);
   if (repr_2d.shape_2d.empty())
-    throw FitterError("No conversion to 2D shape for entity " + entity_ptr->id().str());
+    throw FitterError("No conversion to 2D shape for entity " + entity_ptr->id_);
 
   return repr_2d.shape_2d;
 }
 
 // ----------------------------------------------------------------------------------------------------
 
-void Fitter::renderWorldModel2D(const ed::WorldModel& world, const geo::Pose3D& sensor_pose_xya,
-                                const ed::UUID& skip_id, std::vector<double>& model_ranges,
-                                std::vector<int>& identifiers) const
-{
-  // ToDo: re-implement: use WM copy and remove robots, furniture object. Render that
-  for (ed::WorldModel::const_iterator it = world.begin(); it != world.end(); ++it)
-  {
-    const ed::EntityConstPtr& e = *it;
-    if (e->id() == skip_id)  // Skip entity id that needs to be fitted
-      continue;
+// void Fitter::renderWorldModel2D(const ed::WorldModel& world, const geo::Pose3D& sensor_pose_xya,
+//                                 const ed::UUID& skip_id, std::vector<double>& model_ranges,
+//                                 std::vector<int>& identifiers) const
+// {
+//   // ToDo: re-implement: use WM copy and remove robots, furniture object. Render that
+//   for (ed::WorldModel::const_iterator it = world.begin(); it != world.end(); ++it)
+//   {
+//     const ed::EntityConstPtr& e = *it;
+//     if (e->id() == skip_id)  // Skip entity id that needs to be fitted
+//       continue;
 
-    if (e->hasFlag("self"))  // Skip the robot itself
-      continue;
+//     if (e->hasFlag("self"))  // Skip the robot itself
+//       continue;
 
-    std::string id_str = e->id().str();
-    if (id_str.size() >= 6 && id_str.substr(0, 6) == "sergio")
-      continue;
+//     std::string id_str = e->id().str();
+//     if (id_str.size() >= 6 && id_str.substr(0, 6) == "sergio")
+//       continue;
 
-    if (id_str.size() >= 5 && id_str.substr(0, 5) == "amigo")
-      continue;
+//     if (id_str.size() >= 5 && id_str.substr(0, 5) == "amigo")
+//       continue;
 
-    renderEntity(e, sensor_pose_xya, -1, model_ranges, identifiers);
-  }
-}
+//     renderEntity(e, sensor_pose_xya, -1, model_ranges, identifiers);
+//   }
+// }
 
 // ----------------------------------------------------------------------------------------------------
 
-void Fitter::checkExpectedBeamThroughEntity(const std::vector<double>& model_ranges, ed::EntityConstPtr entity,
+void Fitter::checkExpectedBeamThroughEntity(const std::vector<double>& model_ranges,
+                                            collision_detection::World::ObjectConstPtr entity,
                                             const geo::Pose3D& sensor_pose_xya, const int expected_center_beam) const
 {
   std::vector<double> expected_ranges(nr_data_points_, 0);
@@ -538,9 +585,9 @@ void Fitter::processSensorData(const rgbd::Image& image, const geo::Pose3D& sens
 
 // ----------------------------------------------------------------------------------------------------
 
-EntityRepresentation2D Fitter::GetOrCreateEntity2D(const ed::EntityConstPtr& e) const
+EntityRepresentation2D Fitter::GetOrCreateEntity2D(const collision_detection::World::ObjectConstPtr& e) const
 {
-  std::map<ed::UUID, EntityRepresentation2D>::const_iterator it_model = entity_shapes_.find(e->id());
+  std::map<std::string, EntityRepresentation2D>::const_iterator it_model = entity_shapes_.find(e->id_);
   // ToDo: this does not accomodate for different shape revisions.
   if (it_model != entity_shapes_.end())
     return it_model->second;
@@ -548,31 +595,33 @@ EntityRepresentation2D Fitter::GetOrCreateEntity2D(const ed::EntityConstPtr& e) 
   // Decompose entity pose into X Y YAW and Z ROLL PITCH
   geo::Pose3D pose_xya;
   geo::Pose3D pose_zrp;
-  decomposePose(e->pose(), pose_xya, pose_zrp);
+  decomposePose(e->pose_, pose_xya, pose_zrp);
 
-  EntityRepresentation2D& entity_model = entity_shapes_[e->id()];
-  dml::project2D(e->visual()->getMesh().getTransformed(pose_zrp), entity_model.shape_2d);
+  EntityRepresentation2D& entity_model = entity_shapes_[e->id_];
+  geo::Mesh mesh = convertShapeToMesh(e->shapes_.front());
+  dml::project2D(mesh.getTransformed(pose_zrp), entity_model.shape_2d);
 
   return entity_model;
 }
 
 // ----------------------------------------------------------------------------------------------------
 
-void Fitter::renderEntity(const ed::EntityConstPtr& e, const geo::Pose3D& sensor_pose_xya, int identifier,
-                          std::vector<double>& model_ranges, std::vector<int>& identifiers) const
+void Fitter::renderEntity(const collision_detection::World::ObjectConstPtr& e, const geo::Pose3D& sensor_pose_xya,
+                          int identifier, std::vector<double>& model_ranges, std::vector<int>& identifiers) const
 {
   geo::Transform2 sensor_pose_xya_2d = XYYawToTransform2(sensor_pose_xya);
 
   if (model_ranges.size() != beam_model_.num_beams())
     model_ranges.resize(beam_model_.num_beams(), 0);
 
-  if (!e->visual() || !e->has_pose())
+  // if (!e->visual() || !e->has_pose())
+  if (e->shapes_.empty())
     return;
 
   // Decompose entity pose into X Y YAW and Z ROLL PITCH
   geo::Pose3D pose_xya;
   geo::Pose3D pose_zrp;
-  decomposePose(e->pose(), pose_xya, pose_zrp);
+  decomposePose(e->pose_, pose_xya, pose_zrp);
 
   EntityRepresentation2D e2d = GetOrCreateEntity2D(e);
 

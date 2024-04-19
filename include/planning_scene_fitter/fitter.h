@@ -3,18 +3,17 @@
 
 #include <exception>
 
-#include <ed/plugin.h>
-#include <ed/types.h>
-
 #include <geolib/datatypes.h>
 
 #include <rgbd/types.h>
 #include <image_geometry/pinhole_camera_model.h>
 
 #include "beam_model.h"
+#include "moveit/collision_detection/world.h"
 
-// Model loading
-#include <ed/models/model_loader.h>
+#include <moveit/planning_scene_interface/planning_scene_interface.h>
+#include <moveit/robot_model_loader/robot_model_loader.h>
+#include <moveit/planning_scene/planning_scene.h>
 
 #include <map>
 #include <vector>
@@ -88,7 +87,7 @@ struct FitterData
  */
 struct EstimationInputData
 {
-  ed::EntityConstPtr entity;
+  collision_detection::World::ObjectConstPtr entity;
   Shape2D shape2d_transformed;
   geo::Vec2 shape_center;
   int expected_center_beam;
@@ -152,7 +151,7 @@ public:
    * @param max_yaw_change maximum allowed yaw rotation
    * @return success or failure
    */
-  bool estimateEntityPose(const FitterData& data, const ed::WorldModel& world, const ed::UUID& id,
+  bool estimateEntityPose(const FitterData& data, const collision_detection::World::ObjectConstPtr& object,
                           const geo::Pose3D& expected_pose, geo::Pose3D& fitted_pose,
                           double max_yaw_change = M_PI) const;
 
@@ -171,7 +170,7 @@ public:
    * @param e input entity
    * @return 2D entity representation
    */
-  EntityRepresentation2D GetOrCreateEntity2D(const ed::EntityConstPtr& e) const;
+  EntityRepresentation2D GetOrCreateEntity2D(const collision_detection::World::ObjectConstPtr& e) const;
 
   /**
    * @brief configure the beam model (nr of data points and focal length) according to the camera you are using.
@@ -190,8 +189,8 @@ private:
    * @param model_ranges
    * @param identifiers
    */
-  void renderEntity(const ed::EntityConstPtr& e, const geo::Pose3D& sensor_pose_xya, int identifier,
-                    std::vector<double>& model_ranges, std::vector<int>& identifiers) const;
+  void renderEntity(const collision_detection::World::ObjectConstPtr& e, const geo::Pose3D& sensor_pose_xya,
+                    int identifier, std::vector<double>& model_ranges, std::vector<int>& identifiers) const;
 
   /**
    * @brief estimateEntityPoseImp actual implementation of the entity pose estimation. Preprocess input data
@@ -205,7 +204,7 @@ private:
    * @param max_yaw_change maximum allowed yaw rotation
    * @return success or failure
    */
-  bool estimateEntityPoseImp(const FitterData& data, const ed::WorldModel& world, const ed::UUID& id,
+  bool estimateEntityPoseImp(const FitterData& data, const collision_detection::World::ObjectConstPtr& object,
                              const geo::Pose3D& expected_pose, geo::Pose3D& fitted_pose, double max_yaw_change) const;
 
   /**
@@ -218,7 +217,7 @@ private:
    * @param data input sensor data
    * @return EstimationInputData used throughout the rest of the algorithm
    */
-  EstimationInputData preProcessInputData(const ed::WorldModel& world, const ed::UUID& id,
+  EstimationInputData preProcessInputData(const collision_detection::World::ObjectConstPtr& object,
                                           const geo::Pose3D& expected_pose, const FitterData& data) const;
 
   /**
@@ -226,7 +225,7 @@ private:
    * @param entity_ptr points to the entity
    * @return the computed shape
    */
-  Shape2D get2DShape(ed::EntityConstPtr entity_ptr) const;
+  Shape2D get2DShape(collision_detection::World::ObjectConstPtr entity_ptr) const;
 
   /**
    * @brief renderWorldModel2D renders all world model entities
@@ -237,7 +236,7 @@ private:
    * @param identifiers to distinguish which 'range' belongs to which entity. In this case, -1 will
    * be used as an identifier
    */
-  void renderWorldModel2D(const ed::WorldModel& world, const geo::Pose3D& sensor_pose_xya, const ed::UUID& skip_id,
+  void renderWorldModel2D(const collision_detection::World::ObjectConstPtr, const geo::Pose3D& sensor_pose_xya,
                           std::vector<double>& model_ranges, std::vector<int>& identifiers) const;
 
   /**
@@ -249,7 +248,8 @@ private:
    * @param expected_center_beam expected index of the beam through the center of the object. range: any int. indices
    * outside bounds will also throw an error.
    */
-  void checkExpectedBeamThroughEntity(const std::vector<double>& model_ranges, ed::EntityConstPtr entity,
+  void checkExpectedBeamThroughEntity(const std::vector<double>& model_ranges,
+                                      collision_detection::World::ObjectConstPtr entity,
                                       const geo::Pose3D& sensor_pose_xya, const int expected_center_beam) const;
 
   /**
@@ -265,10 +265,7 @@ private:
   BeamModel beam_model_;
 
   // 2D Entity shapes
-  mutable std::map<ed::UUID, EntityRepresentation2D> entity_shapes_;
-
-  // Models
-  ed::models::ModelLoader model_loader_;
+  mutable std::map<std::string, EntityRepresentation2D> entity_shapes_;
 
   uint nr_data_points_;
   bool configured_ = false;

@@ -10,6 +10,7 @@
 
   <depend>geolib2</depend>
   <depend>rgbd</depend>
+  <depend>rgbd_image_buffer</depend>
   <depend>ed</depend>
   <depend>roscpp</depend>
   <depend>tf2_ros</depend>

@@ -12,6 +12,7 @@ find_package(
              moveit_ros_planning_interface
              geolib2
              rgbd
+             rgbd_image_buffer
              ed
              tf2_ros
              tf2_geometry_msgs
@@ -30,6 +31,8 @@ catkin_package(
     moveit_ros_planning_interface
     geolib2
     rgbd
+    rgbd_image_buffer
+    ed
     geometry_msgs
     roscpp
     tf2_ros
@@ -39,12 +42,13 @@ catkin_package(
   DEPENDS OpenCV
 )
 
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-)
+include_directories(include ${catkin_INCLUDE_DIRS})
 
-file(GLOB_RECURSE project_sources src/*.cpp)
+file(
+  GLOB_RECURSE
+  project_sources
+  src/*.cpp
+)
 
 add_executable(${PROJECT_NAME} ${project_sources})
 target_link_libraries(
