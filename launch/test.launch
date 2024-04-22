@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- -*- mode: XML -*- -->
+<launch>
+  <param name="topic_name" value="/soar/head_camera/rgbd"/>
+  <node pkg="planning_scene_fitter" name="planning_scene_fitter" type="planning_scene_fitter" output="screen" required="true">
+  </node>
+</launch>

@@ -4,8 +4,9 @@
 // Logging
 #include <ros/ros.h>
 
-#include <Eigen/Geometry>
 #include <geometric_shapes/shapes.h>
+#include "geolib/Box.h"
+#include "geolib/datatypes.h"
 #include "moveit/collision_detection/world.h"
 #include "planning_scene_fitter/fitter.h"
 #include <ed/entity.h>
@@ -13,6 +14,8 @@
 #include <ed/update_request.h>
 #include <ed/logging.h>
 #include <geolib/Shape.h>
+#include <geolib/ros/msg_conversions.h>
+#include <geolib/shapes.h>
 
 // Image capture
 #include <rgbd/image.h>
@@ -115,14 +118,10 @@ void decomposePose(const geo::Pose3D& pose, geo::Pose3D& pose_xya, geo::Pose3D& 
 void decomposePose(const Eigen::Isometry3d& pose, geo::Pose3D& pose_xya, geo::Pose3D& pose_zrp)
 {
   geo::Vec3d translation(pose.translation().x(), pose.translation().y(), pose.translation().z());
+  Eigen::Quaterniond q(pose.linear());
+  geo::Quaternion orientation(q.x(), q.y(), q.z(), q.w());
   geo::Mat3d rotation;
-  for (int i = 0; i < 3; i++)
-  {
-    for (int j = 0; j < 3; j++)
-    {
-      rotation(i, j) = pose.rotation()(i, j);
-    }
-  }
+  rotation.setRotation(orientation);
   geo::Pose3D geo_pose(rotation, translation);
   decomposePose(geo_pose, pose_xya, pose_zrp);
 }
@@ -155,6 +154,14 @@ geo::Mesh convertShapeToMesh(const shapes::ShapeConstPtr& shape)
       const unsigned int* triangle = mesh->triangles + 3 * i;
       geo_mesh.addTriangle(triangle[0], triangle[1], triangle[2]);
     }
+  }
+  else if (shape->type == shapes::BOX)
+  {
+    const shapes::Box* box = static_cast<const shapes::Box*>(shape.get());
+    geo::Vec3 min = geo::Vec3(-box->size[0] / 2, -box->size[1] / 2, -box->size[2] / 2);
+    geo::Vec3 max = geo::Vec3(box->size[0] / 2, box->size[1] / 2, box->size[2] / 2);
+    geo::Mesh box_mesh = geo::Box(min, max).getMesh();
+    geo_mesh = box_mesh;
   }
   else
   {
