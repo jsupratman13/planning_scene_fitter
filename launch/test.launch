@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- -*- mode: XML -*- -->
+<launch>
+  <param name="filename" value="$(find planning_scene_fitter)/meshes/shelf.stl"/>
+  <node pkg="planning_scene_fitter" name="planning_scene_fitter" type="planning_scene_fitter" output="screen" required="true">
+    <remap from="input_cloud" to="/soar/head_camera/depth_registered/points"/>
+  </node>
+</launch>
