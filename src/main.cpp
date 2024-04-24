@@ -17,6 +17,8 @@
 #include <std_srvs/Empty.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
 #include <Eigen/Geometry>
+#include <open3d/Open3D.h>
+#include <open3d_conversions/open3d_conversions.h>
 
 typedef pcl::PointCloud<pcl::PointXYZ> PointCloudXYZ;
 
@@ -31,10 +33,13 @@ public:
     pub_ = nh.advertise<sensor_msgs::PointCloud2>("output_cloud", 1);
     std::string filename;
     nh_.param<std::string>("filename", filename, "mesh.stl");
-    if (pcl::io::loadPolygonFileSTL(filename, mesh_) == 0)
+    auto mesh = open3d::io::CreateMeshFromFile(filename);
+    if (!mesh)
     {
       ROS_WARN_STREAM("Could not load mesh file");
     }
+    auto mesh_point_cloud = mesh->SamplePointsPoissonDisk(10000);
+    open3d_conversions::open3dToRos(*mesh_point_cloud, mesh_point_cloud_msg_, "map");
   }
 
 private:
@@ -47,7 +52,7 @@ private:
   tf2_ros::TransformListener tf_listener_;
   ros::ServiceServer server_;
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface_;
-  pcl::PolygonMesh mesh_;
+  sensor_msgs::PointCloud2 mesh_point_cloud_msg_;
 
   void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg)
   {
@@ -81,7 +86,7 @@ private:
     Eigen::Affine3d shelf_mat;
     tf::poseMsgToEigen(shelf_pose, shelf_mat);
     input_cloud_ = PointCloudXYZ::Ptr(new PointCloudXYZ);
-    pcl::fromPCLPointCloud2(mesh_.cloud, *input_cloud_);
+    pcl::fromROSMsg(mesh_point_cloud_msg_, *input_cloud_);
     pcl::transformPointCloud(*input_cloud_, *input_cloud_, shelf_mat.matrix().cast<float>());
 
     sensor_msgs::PointCloud2 test_cloud;

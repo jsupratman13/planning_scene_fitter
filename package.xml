@@ -19,5 +19,6 @@
   <depend>cv_bridge</depend>
   <depend>eigen</depend>
   <depend>eigen_conversions</depend>
+  <depend>open3d_conversions</depend>
 
 </package>

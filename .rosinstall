@@ -1,0 +1,4 @@
+- git:
+    local-name: perception_open3d
+    uri: git@github.com:ros-perception/perception_open3d.git
+    version: main

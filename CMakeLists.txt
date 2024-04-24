@@ -15,13 +15,14 @@ find_package(
              tf2_geometry_msgs
              cv_bridge
              eigen_conversions
+             open3d_conversions
 )
 
 find_package(OpenCV REQUIRED)
+find_package(Open3D REQUIRED)
 
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES ${PROJECT_NAME}
   CATKIN_DEPENDS
     actionlib
     moveit_ros_planning_interface
@@ -32,16 +33,22 @@ catkin_package(
     tf2_geometry_msgs
     cv_bridge
     eigen_conversions
-  DEPENDS OpenCV
+    open3d_conversions
+  DEPENDS OpenCV Open3D
 )
 
-include_directories(include ${catkin_INCLUDE_DIRS})
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+  ${Open3D_LIBRARY_DIRS}
+)
 
 add_executable(${PROJECT_NAME} src/main.cpp)
 target_link_libraries(
   ${PROJECT_NAME}
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
+  ${Open3D_LIBRARIES}
 )
 add_dependencies(${PROJECT_NAME} ${catkin_EXPORTED_TARGETS})
 
@@ -50,9 +57,9 @@ install(
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
 )
 
-#install(
-#  TARGETS point_frame
-#  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
-#)
+install(
+  TARGETS ${PROJECT_NAME}
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+)
