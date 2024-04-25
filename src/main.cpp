@@ -4,6 +4,7 @@
 #include <pcl_ros/point_cloud.h>
 #include <pcl/registration/ndt.h>
 #include <pcl/filters/passthrough.h>
+#include <pcl/filters/approximate_voxel_grid.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <eigen_conversions/eigen_msg.h>
 #include <geometry_msgs/Pose.h>
@@ -16,6 +17,7 @@
 #include <std_srvs/Empty.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
 #include <Eigen/Geometry>
+#include "Eigen/src/Geometry/Transform.h"
 #include <open3d/Open3D.h>
 #include <open3d_conversions/open3d_conversions.h>
 #include <open3d/geometry/TriangleMesh.h>
@@ -78,8 +80,12 @@ private:
     pcl::PassThrough<pcl::PointXYZ> pass;
     pass.setInputCloud(target_cloud_);
     pass.setFilterFieldName("z");
-    pass.setFilterLimits(0.2, FLT_MAX);
+    pass.setFilterLimits(0.05, FLT_MAX);
     pass.filter(*target_cloud_);
+    // pcl::ApproximateVoxelGrid<pcl::PointXYZ> approximate_voxel_filter;
+    // approximate_voxel_filter.setLeafSize(0.1, 0.1, 0.1);
+    // approximate_voxel_filter.setInputCloud(target_cloud_);
+    // approximate_voxel_filter.filter(*target_cloud_);
   }
 
   bool serviceCallback(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
@@ -97,6 +103,10 @@ private:
     input_cloud_ = PointCloudXYZ::Ptr(new PointCloudXYZ);
     pcl::fromROSMsg(mesh_point_cloud_msg_, *input_cloud_);
     pcl::transformPointCloud(*input_cloud_, *input_cloud_, shelf_mat.matrix().cast<float>());
+    // pcl::ApproximateVoxelGrid<pcl::PointXYZ> approximate_voxel_filter;
+    // approximate_voxel_filter.setLeafSize(0.2, 0.2, 0.2);
+    // approximate_voxel_filter.setInputCloud(input_cloud_);
+    // approximate_voxel_filter.filter(*input_cloud_);
     sensor_msgs::PointCloud2Ptr input_msg(new sensor_msgs::PointCloud2);
     pcl::toROSMsg(*input_cloud_, *input_msg);
     input_msg->header.frame_id = "map";
@@ -120,7 +130,17 @@ private:
     Eigen::Matrix4f initial_guess = shelf_mat.matrix().cast<float>();
     pcl::PointCloud<pcl::PointXYZ> output_cloud;
     // ndt.align(output_cloud, initial_guess);
-    ndt2.align(output_cloud, initial_guess);
+    // ndt2.align(output_cloud, initial_guess);
+    ndt2.align(output_cloud);
+
+    auto diff_x = ndt2.getFinalTransformation()(0, 3);
+    auto diff_y = ndt2.getFinalTransformation()(1, 3);
+    auto diff_yaw = std::atan2(ndt2.getFinalTransformation()(1, 0), ndt2.getFinalTransformation()(0, 0));
+    Eigen::Matrix4f diff_mat = Eigen::Matrix4f::Identity();
+    diff_mat(0, 3) = diff_x;
+    diff_mat(1, 3) = diff_y;
+    diff_mat.block<3, 3>(0, 0) = Eigen::AngleAxisf(diff_yaw, Eigen::Vector3f::UnitZ()).toRotationMatrix();
+    pcl::transformPointCloud(*target_cloud_, output_cloud, diff_mat);
 
     auto source = std::make_shared<open3d::geometry::PointCloud>();
     auto target = std::make_shared<open3d::geometry::PointCloud>();
