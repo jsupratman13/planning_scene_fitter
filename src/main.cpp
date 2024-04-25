@@ -2,9 +2,8 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl_ros/transforms.h>
 #include <pcl_ros/point_cloud.h>
-#include <pcl/io/ply_io.h>
-#include <pcl/io/vtk_lib_io.h>
 #include <pcl/registration/ndt.h>
+#include <pcl/filters/passthrough.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <eigen_conversions/eigen_msg.h>
 #include <geometry_msgs/Pose.h>
@@ -19,6 +18,8 @@
 #include <Eigen/Geometry>
 #include <open3d/Open3D.h>
 #include <open3d_conversions/open3d_conversions.h>
+#include <open3d/geometry/TriangleMesh.h>
+#include <pclomp/ndt_omp.h>
 
 typedef pcl::PointCloud<pcl::PointXYZ> PointCloudXYZ;
 
@@ -38,7 +39,9 @@ public:
     {
       ROS_WARN_STREAM("Could not load mesh file");
     }
-    auto mesh_point_cloud = mesh->SamplePointsPoissonDisk(10000);
+    // auto mesh_point_cloud = mesh->SamplePointsPoissonDisk(10000);
+    // mesh = open3d::geometry::TriangleMesh::CreateBox(1.0, 1.0, 1.0);
+    auto mesh_point_cloud = mesh->SamplePointsUniformly(10000);
     open3d_conversions::open3dToRos(*mesh_point_cloud, mesh_point_cloud_msg_, "map");
   }
 
@@ -72,6 +75,11 @@ private:
     }
     target_cloud_ = PointCloudXYZ::Ptr(new PointCloudXYZ);
     pcl::fromROSMsg(cloud_msg_transformed, *target_cloud_);
+    pcl::PassThrough<pcl::PointXYZ> pass;
+    pass.setInputCloud(target_cloud_);
+    pass.setFilterFieldName("z");
+    pass.setFilterLimits(0.2, FLT_MAX);
+    pass.filter(*target_cloud_);
   }
 
   bool serviceCallback(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
@@ -85,26 +93,52 @@ private:
     geometry_msgs::Pose shelf_pose = co_vec["shelf"].pose;
     Eigen::Affine3d shelf_mat;
     tf::poseMsgToEigen(shelf_pose, shelf_mat);
+    // shelf_mat = shelf_mat * Eigen::Translation3d(-0.5, -0.5, -0.5);
     input_cloud_ = PointCloudXYZ::Ptr(new PointCloudXYZ);
     pcl::fromROSMsg(mesh_point_cloud_msg_, *input_cloud_);
     pcl::transformPointCloud(*input_cloud_, *input_cloud_, shelf_mat.matrix().cast<float>());
-
-    sensor_msgs::PointCloud2 test_cloud;
-    pcl::toROSMsg(*input_cloud_, test_cloud);
-    test_cloud.header.frame_id = "map";
-    pub_.publish(test_cloud);
+    sensor_msgs::PointCloud2Ptr input_msg(new sensor_msgs::PointCloud2);
+    pcl::toROSMsg(*input_cloud_, *input_msg);
+    input_msg->header.frame_id = "map";
+    pub_.publish(*input_msg);
 
     pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
     ndt.setTransformationEpsilon(0.01);
     ndt.setStepSize(0.1);
     ndt.setResolution(1.0);
     ndt.setMaximumIterations(35);
-    ndt.setInputSource(input_cloud_);
-    ndt.setInputTarget(target_cloud_);
+    ndt.setInputSource(target_cloud_);
+    ndt.setInputTarget(input_cloud_);
 
-    Eigen::Matrix4f initial_guess = Eigen::Matrix4f::Identity();
+    pclomp::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt2;
+    ndt2.setResolution(1.0);
+    ndt2.setStepSize(0.1);
+    ndt2.setNeighborhoodSearchMethod(pclomp::DIRECT7);
+    ndt2.setInputSource(target_cloud_);
+    ndt2.setInputTarget(input_cloud_);
+
+    Eigen::Matrix4f initial_guess = shelf_mat.matrix().cast<float>();
     pcl::PointCloud<pcl::PointXYZ> output_cloud;
-    ndt.align(output_cloud, initial_guess);
+    // ndt.align(output_cloud, initial_guess);
+    ndt2.align(output_cloud, initial_guess);
+
+    auto source = std::make_shared<open3d::geometry::PointCloud>();
+    auto target = std::make_shared<open3d::geometry::PointCloud>();
+    auto result = std::make_shared<open3d::geometry::PointCloud>();
+    sensor_msgs::PointCloud2Ptr source_msg(new sensor_msgs::PointCloud2);
+    sensor_msgs::PointCloud2Ptr target_msg(new sensor_msgs::PointCloud2);
+    sensor_msgs::PointCloud2Ptr result_msg(new sensor_msgs::PointCloud2);
+    pcl::toROSMsg(*ndt.getInputSource(), *source_msg);
+    pcl::toROSMsg(*ndt.getInputTarget(), *target_msg);
+    pcl::toROSMsg(output_cloud, *result_msg);
+    open3d_conversions::rosToOpen3d(source_msg, *source);
+    open3d_conversions::rosToOpen3d(target_msg, *target);
+    open3d_conversions::rosToOpen3d(result_msg, *result);
+    source->PaintUniformColor(Eigen::Vector3d(1, 0, 0));
+    target->PaintUniformColor(Eigen::Vector3d(0, 1, 0));
+    result->PaintUniformColor(Eigen::Vector3d(0, 0, 1));
+
+    open3d::visualization::DrawGeometries({ source, target, result });
 
     if (ndt.hasConverged())
     {

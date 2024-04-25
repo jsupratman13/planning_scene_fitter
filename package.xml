@@ -20,5 +20,6 @@
   <depend>eigen</depend>
   <depend>eigen_conversions</depend>
   <depend>open3d_conversions</depend>
+  <depend>ndt_omp</depend>
 
 </package>

@@ -16,6 +16,7 @@ find_package(
              cv_bridge
              eigen_conversions
              open3d_conversions
+             ndt_omp
 )
 
 find_package(OpenCV REQUIRED)
@@ -34,6 +35,7 @@ catkin_package(
     cv_bridge
     eigen_conversions
     open3d_conversions
+    ndt_omp
   DEPENDS OpenCV Open3D
 )
 
