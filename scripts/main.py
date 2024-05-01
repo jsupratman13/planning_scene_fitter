@@ -7,25 +7,27 @@ import open3d as o3d
 import probreg
 import rospy
 import sensor_msgs.point_cloud2 as pc2
+import small_gicp
 from cube_experimental_python_api import CubeExperimentalCommander as Soar
 from cube_python_api.proxies import ProxyTransformListener
 from cube_python_api.utils import message_conversion  # noqa: F401
+from moveit_msgs.msg import CollisionObject
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs.msg import PointField
 from std_msgs.msg import Header
 from tf2_sensor_msgs import do_transform_cloud
 
 
-def get_current_o3d():
+def get_current_o3d() -> o3d.geometry.PointCloud:
     msg = rospy.wait_for_message('/soar/head_camera/depth_registered/points_voxel_filtered', PointCloud2)
     transform = tf2.lookup_transform('map', msg.header.frame_id)
     new_msg = do_transform_cloud(msg, transform)
     new_msg2 = filter_points(new_msg, 0.05)
     new_msg3 = pc2.create_cloud_xyz32(new_msg.header.frame_id, list(new_msg2))
-    return pointcloud2_to_o3d(new_msg3)
+    return pointcloud2_to_o3d(new_msg3).paint_uniform_color([1, 0, 0])
 
 
-def create_o3d_box(co, points=1000):
+def create_o3d_box(co: CollisionObject, points=1000) -> o3d.geometry.PointCloud:
     size = co.primitives[0].dimensions
     mesh = o3d.geometry.TriangleMesh.create_box(*size)
     mesh.translate([-size[0] / 2, -size[1] / 2, -size[2] / 2], relative=True)
@@ -34,7 +36,14 @@ def create_o3d_box(co, points=1000):
     return pcd.paint_uniform_color([0, 1, 0])
 
 
-def filter_points(pcl_msg, z_threshold=0.2):
+def create_o3d_mesh(co: CollisionObject, filename: str, points=1000) -> o3d.geometry.PointCloud:
+    mesh = o3d.io.read_triangle_mesh(filename)
+    pcd = mesh.sample_points_poisson_disk(number_of_points=points)
+    pcd.transform(co.pose.mat())
+    return pcd.paint_uniform_color([0, 1, 0])
+
+
+def filter_points(pcl_msg: PointCloud2, z_threshold=0.2) -> pc2.PointCloud2Iterator:
     """
     Filter points based on the z-value threshold.
 
@@ -47,7 +56,7 @@ def filter_points(pcl_msg, z_threshold=0.2):
             yield p
 
 
-def pointcloud2_to_o3d(pcl_msg):
+def pointcloud2_to_o3d(pcl_msg: PointCloud2) -> o3d.geometry.PointCloud:
     """
     Convert sensor_msgs/PointCloud2 to open3d.geometry.PointCloud
 
@@ -88,7 +97,7 @@ def pointcloud2_to_o3d(pcl_msg):
     return cloud
 
 
-def o3d_to_ros_pointcloud2(pcd, frame_id="map"):
+def o3d_to_ros_pointcloud2(pcd: o3d.geometry.PointCloud, frame_id="map") -> PointCloud2:
     """
     Convert an Open3D PointCloud to a sensor_msgs/PointCloud2 message.
 
@@ -130,16 +139,52 @@ def o3d_to_ros_pointcloud2(pcd, frame_id="map"):
     return ros_pcl
 
 
+def align_cpd(source: o3d.geometry.PointCloud, target: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
+    result = probreg.cpd.registration_cpd(source, target, update_scale=False)
+    output = copy.deepcopy(source)
+    output.points = result.transformation.transform(output.points)
+    return output.paint_uniform_color([0, 0, 1])
+
+
+def align_small_gicp(
+        source: o3d.geometry.PointCloud,
+        target: o3d.geometry.PointCloud,
+        registration_type="GICP") -> o3d.geometry.PointCloud:
+    result = small_gicp.align(
+        np.asarray(target.points), np.asarray(source.points), registration_type=registration_type)
+    output = copy.deepcopy(source)
+    output.transform(result.T_target_source)
+    return output.paint_uniform_color([0, 0, 1])
+
+
+def filter_points_within_bbox(point_cloud: o3d.geometry.PointCloud,
+                              bbox: o3d.geometry.AxisAlignedBoundingBox) -> o3d.geometry.PointCloud:
+    # Convert point cloud to numpy array
+    points = np.asarray(point_cloud.points)
+    # Get the bounding box min and max vectors
+    min_bound = bbox.get_min_bound()
+    max_bound = bbox.get_max_bound()
+    # Create a mask for points within the bounding box
+    mask = np.all((points >= min_bound) & (points <= max_bound), axis=1)
+    # Filter points
+    filtered_points = points[mask]
+    # Create a new point cloud for the filtered points
+    filtered_point_cloud = o3d.geometry.PointCloud()
+    filtered_point_cloud.points = o3d.utility.Vector3dVector(filtered_points)
+    if point_cloud.colors:
+        colors = np.asarray(point_cloud.colors)
+        filtered_colors = colors[mask]
+        filtered_point_cloud.colors = o3d.utility.Vector3dVector(filtered_colors)
+    return filtered_point_cloud
+
+
 if __name__ == '__main__':
+    rospy.init_node('test')
     tf2 = ProxyTransformListener()
     scene = Soar.scene()
     co = scene.get_objects()
     co_cloud = create_o3d_box(co['Box_1'], points=10000)
-    co_cloud.paint_uniform_color([1, 0, 0])
     sensor_cloud = get_current_o3d()
-    sensor_cloud.paint_uniform_color([0, 1, 0])
-    result = probreg.cpd.registration_cpd(sensor_cloud, co_cloud, update_scale=False)
-    output = copy.deepcopy(sensor_cloud)
-    output.points = result.transformation.transform(output.points)
-    output.paint_uniform_color([0, 0, 1])
-    o3d.visualization.draw_geometries([sensor_cloud, co_cloud, output])
+    # output_cloud = align_cpd(sensor_cloud, co_cloud)
+    output_cloud = align_small_gicp(sensor_cloud, co_cloud, registration_type="GICP")
+    o3d.visualization.draw_geometries([sensor_cloud, co_cloud, output_cloud])
