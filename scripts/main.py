@@ -43,7 +43,7 @@ def create_o3d_mesh(co: CollisionObject, filename: str, points=1000) -> o3d.geom
     return pcd.paint_uniform_color([0, 1, 0])
 
 
-def filter_points(pcl_msg: PointCloud2, z_threshold=0.2) -> pc2.PointCloud2Iterator:
+def filter_points(pcl_msg: PointCloud2, z_threshold=0.2) -> pc2.PointCloud2:
     """
     Filter points based on the z-value threshold.
 
@@ -178,13 +178,34 @@ def filter_points_within_bbox(point_cloud: o3d.geometry.PointCloud,
     return filtered_point_cloud
 
 
+def raycasting(mesh: o3d.geometry.TriangleMesh, pose: np.ndarray) -> o3d.geometry.PointCloud:
+    mesh_legacy = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+    scene = o3d.t.geometry.RaycastingScene()
+    scene.add_triangles(mesh_legacy)
+    rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
+        fov_deg=90,
+        center=[0, 0, 2],
+        eye=[2, 3, 0],
+        up=[0, 1, 0],
+        width_px=640,
+        height_px=480,
+    )
+    ans = scene.cast_rays(rays)
+    hit = ans['t_hit'].isfinite()
+    points = rays[hit][:, :3] + rays[hit][:, 3:] * ans['t_hit'][hit].reshape((-1, 1))
+    pcd = o3d.t.geometry.PointCloud(points).to_legacy()
+    pcd.transform(pose)
+    pcd.paint_uniform_color([0, 1, 1])
+    return pcd
+
+
 if __name__ == '__main__':
     rospy.init_node('test')
     tf2 = ProxyTransformListener()
     scene = Soar.scene()
     co = scene.get_objects()
-    co_cloud = create_o3d_box(co['Box_1'], points=10000)
     sensor_cloud = get_current_o3d()
+    co_cloud = create_o3d_box(co['Box_1'], points=10000)
     # output_cloud = align_cpd(sensor_cloud, co_cloud)
-    output_cloud = align_small_gicp(sensor_cloud, co_cloud, registration_type="GICP")
-    o3d.visualization.draw_geometries([sensor_cloud, co_cloud, output_cloud])
+    # output_cloud = align_small_gicp(sensor_cloud, co_cloud, registration_type="GICP")
+    # o3d.visualization.draw_geometries([sensor_cloud, co_cloud, output_cloud])
